@@ -73,8 +73,11 @@ At the time of writing the code base we used following libraries and language
 
 2. Enable I2C on your Raspberry Pi and install the necessary libraries:
    ```bash
-   pip install adafruit-circuitpython-busdevice
+   pip3 install adafruit-circuitpython-busdevice
 
 3. Install pyserial for serial communication with GPS:
     ```bash
-    pip install pyserial
+    pip3 install pyserial
+4. Install openant for wirless communication over ANT protocol:
+    ```bash
+    pip install openant or pip install git+https://github.com/Tigge/openant#egg=openant
