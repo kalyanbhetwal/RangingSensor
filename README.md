@@ -78,6 +78,6 @@ At the time of writing the code base we used following libraries and language
 3. Install pyserial for serial communication with GPS:
     ```bash
     pip3 install pyserial
-4. Install openant for wirless communication over ANT protocol:
+4. Install openant for wireless communication over ANT protocol:
     ```bash
     pip install openant or pip install git+https://github.com/Tigge/openant#egg=openant
