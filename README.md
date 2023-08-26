@@ -54,6 +54,7 @@ GND        | GND
 SDA        | GPIO 2 (SDA)
 SCL        | GPIO 3 (SCL)
 
+### Interfacing the Ant Usb dongle
 
 
 ## Library Dependency
