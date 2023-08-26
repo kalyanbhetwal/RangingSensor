@@ -7,6 +7,7 @@ Snow depth measurement using Garmin Lidar Lite v4 sensor.
 - [Features](#features)
 - [Hardware Setup](#hardware-setup)
 - [Installation](#installation)
+- [Library-Dependency](#Library-Dependency)
 - [Usage](#usage)
 - [Contributing](#contributing)
 - [License](#license)
@@ -44,6 +45,8 @@ GND            | GND
 TX             | RX (GPIO Pin, e.g., 10)
 RX             | TX (GPIO Pin, e.g., 8)
 
+### Interfacing the Garmin Sensor (I2C)
+
 Sensor Pin | Raspberry Pi GPIO Pin (I2C)
 ---------- | --------------------------
 VCC        | 5V or 3.3V (depending on sensor)
@@ -53,14 +56,25 @@ SCL        | GPIO 3 (SCL)
 
 
 
-## Library Dependcy
-1. OpenAnt ()
-2. I2C
-3. GPS
-4. LCD Display
+## Library Dependency
+
+At the time of writing the code base we used following libraries and language
+
+1. OpenAnt (https://github.com/Tigge/openant)
+2. I2C (https://github.com/adafruit/Adafruit_CircuitPython_BusDevice)
+3. GPS (https://github.com/pyserial/pyserial)
+4. LCD Display (https://github.com/adafruit/Adafruit_CircuitPython_CharLCD) (https://learn.adafruit.com/character-lcds/python-circuitpython)
+5. Python (>=3.0)
 
 ## Installation
+1. Install `Adafruit_CharLCD` for controlling character LCD displays:
+   ```bash
+   pip3 install adafruit-circuitpython-charlcd
 
-1. Enable I2C on your Raspberry Pi and install the necessary libraries:
+2. Enable I2C on your Raspberry Pi and install the necessary libraries:
    ```bash
    pip install adafruit-circuitpython-busdevice
+
+3. Install pyserial for serial communication with GPS:
+    ```bash
+    pip install pyserial
