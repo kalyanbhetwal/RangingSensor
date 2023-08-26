@@ -62,9 +62,9 @@ SCL        | GPIO 3 (SCL)
 At the time of writing the code base we used following libraries and language
 
 1. OpenAnt (https://github.com/Tigge/openant)
-2. I2C (https://github.com/adafruit/Adafruit_CircuitPython_BusDevice)
+2. I2C (https://github.com/adafruit/Adafruit_CircuitPython_BusDevice) (https://github.com/adafruit/Adafruit_CircuitPython_LIDARLite)
 3. GPS (https://github.com/pyserial/pyserial)
-4. LCD Display (https://github.com/adafruit/Adafruit_CircuitPython_CharLCD) (https://learn.adafruit.com/character-lcds/python-circuitpython)
+4. LCD Display (https://github.com/adafruit/Adafruit_CircuitPython_CharLCD) (https://docs.circuitpython.org/projects/charlcd/en/latest/)
 5. Python (>=3.0)
 
 ## Installation
@@ -75,6 +75,7 @@ At the time of writing the code base we used following libraries and language
 2. Enable I2C on your Raspberry Pi and install the necessary libraries:
    ```bash
    pip3 install adafruit-circuitpython-busdevice
+   pip3 install adafruit-circuitpython-lidarlite (Still need to check and decide)
 
 3. Install pyserial for serial communication with GPS:
     ```bash
