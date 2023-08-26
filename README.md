@@ -25,13 +25,13 @@ Snow depth measurement using Garmin Lidar Lite v4 sensor.
 2.
 3.
 
-## Depdency
-1.
-2.
-3.
+## Library Dependcy
+1. OpenAnt ()
+2. I2C
+3. GPS
+4. LCD Display
 
 ## Installation
 
 1. Enable I2C on your Raspberry Pi and install necessary libraries:
-   ```bash
    pip install adafruit-circuitpython-busdevice
