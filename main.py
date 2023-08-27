@@ -4,6 +4,7 @@ import board
 import busio
 import digitalio
 import adafruit_character_lcd.character_lcd as characterlcd
+import adafruit_bus_device.i2c_device as i2c_device
 
 # Import the LIDAR-Lite v4 library
 import adafruit_lidarlite
@@ -17,8 +18,8 @@ GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 i2c = busio.I2C(board.SCL, board.SDA)
 
 # Create LIDAR-Lite v4 object
+I2C_ADDRESS = 0x62  # Replace with the actual address
 lidar = adafruit_lidarlite.LIDARLite(i2c)
-
 
 # Initialize LCD
 lcd_columns = 16
@@ -54,16 +55,36 @@ def read_distance():
     distance = lidar.distance
     return distance
 
-try:
-    while True:
-        button_state = GPIO.input(BUTTON_PIN)
-        if button_state == GPIO.LOW:
-            distance = read_distance()
-            if distance is not None:
-                distance_cm = distance / 100.0
-                print("Distance:", distance_cm, "cm")
-                lcd.clear()
-                lcd.message("Distance: {:.2f} cm".format(distance_cm))
-            time.sleep(0.1)  # Debounce the button
-except KeyboardInterrupt:
-    GPIO.cleanup()
+
+def i2c_measurement():
+    try:
+        while True:
+            button_state = GPIO.input(BUTTON_PIN)
+            if button_state == GPIO.LOW:
+                distance = read_distance()
+                if distance is not None:
+                    distance_cm = distance / 100.0
+                    print("Distance:", distance_cm, "cm")
+                    lcd.clear()
+                    lcd.message("Distance: {:.2f} cm".format(distance_cm))
+                time.sleep(0.1)  # Debounce the button
+    except KeyboardInterrupt:
+        GPIO.cleanup()
+
+
+if __name__=="__main__":
+    flag = False  #if i2c device not found check for ANT
+    try:
+        with i2c_device.I2CDevice(i2c, I2C_ADDRESS):
+            print("Device found at address: 0x{:02X}".format(I2C_ADDRESS))
+            flag = True
+    except:
+        print("No bus device found")
+
+    #add logic for ant protocol implementation
+    if not flag:
+        pass
+
+    
+
+    
