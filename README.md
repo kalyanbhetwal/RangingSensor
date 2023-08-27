@@ -49,17 +49,17 @@ RX             | TX (GPIO Pin, e.g., 8)
 
 Sensor Pin | Raspberry Pi GPIO Pin (I2C)
 ---------- | --------------------------
-VCC        | 5V or 3.3V (depending on sensor)
+VCC        | 5V or 3.3V (depending on the sensor)
 GND        | GND
 SDA        | GPIO 2 (SDA)
 SCL        | GPIO 3 (SCL)
 
 ### Interfacing the Ant Usb dongle
-
+Please follow the blog for https://bin.re/blog/track-your-heartrate-on-raspberry-pi-with-ant/?fbclid=IwAR0b-LjFN6-d7EEYO7c1AOEhAPhWBSdaiynhcVZKetV5C_3aEDBHZ0MGSwI
 
 ## Library Dependency
 
-At the time of writing the code base we used following libraries and language
+At the time of writing the code base we used the following libraries and language
 
 1. OpenAnt (https://github.com/Tigge/openant)
 2. I2C (https://github.com/adafruit/Adafruit_CircuitPython_BusDevice) (https://github.com/adafruit/Adafruit_CircuitPython_LIDARLite)
