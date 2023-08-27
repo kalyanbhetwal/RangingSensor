@@ -5,6 +5,7 @@ import busio
 import digitalio
 import adafruit_character_lcd.character_lcd as characterlcd
 import adafruit_bus_device.i2c_device as i2c_device
+import ranging
 
 # Import the LIDAR-Lite v4 library
 import adafruit_lidarlite
@@ -50,6 +51,91 @@ time.sleep(3)
 # Clear the display
 lcd.clear()
 
+### import for ant
+from openant.easy.node import Node
+from openant.easy.channel import Channel
+
+# Definition of Variables
+NETWORK_KEY = [0xE8, 0xE4, 0x33, 0xA9, 0xDD, 0x56, 0xC1, 0x43]
+Device_Type = 16  # 124 = Stride & Distance Sensor
+Device_Number = 12345  # Change if you need.
+Channel_Period = 8192
+Channel_Frequency = 66
+
+##########################################################################
+
+
+class AntSendDemo:
+    def __init__(self):
+
+        self.ANTMessageCount = 0
+        self.ANTMessagePayload = [0, 0, 0, 0, 0, 0, 0, 0]
+
+    def Create_Next_DataPage(self):
+        # Define Variables
+        self.ANTMessageCount += 1
+        
+        self.ANTMessagePayload = [0x31, self.ANTMessageCount, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+            # ANTMessageCount reset
+        if self.ANTMessageCount > 131:
+            self.ANTMessageCount = 0
+
+        return self.ANTMessagePayload
+
+    # RX Event
+    def on_data(self, data):
+        
+        self.Create_Next_DataPage()
+        print(self.ANTMessagePayload)
+        self.channel.send_acknowledged_data(self.ANTMessagePayload) 
+        page = data[0]
+        if page == 80: # manufacturer id
+            print("Manifacturer data ")
+        elif page == 81:
+            print("Acknowledgement ")
+        elif (page & 0x0F) <= 7:
+            distance = data[6]
+            print(f"distance : {distance} cm")
+
+        print(f"on_data: {data}")
+        #self.ActualTime = time.time() - self.TimeProgramStart
+
+
+    # Open Channel
+    def OpenChannel(self):
+
+        self.node = Node()  # initialize the ANT+ device as node
+
+        # CHANNEL CONFIGURATION
+        self.node.set_network_key(0x00, NETWORK_KEY)  # set network key
+        self.channel = self.node.new_channel(Channel.Type.BIDIRECTIONAL_RECEIVE) 
+        # self.channel.set_id(
+        #     Device_Number, Device_Type, 5
+        # )  # set channel id as <Device Number, Device Type, Transmission Type>
+        self.channel.set_period(Channel_Period)  # set Channel Period
+        self.channel.set_rf_freq(Channel_Frequency)  # set Channel Frequency
+        self.channel.set_search_timeout(12)
+        self.channel.set_id(0, 16, 0)
+        print("Starting a node")
+        # Callback function for each RX event
+
+        GPIO.add_event_detect(BUTTON_PIN, GPIO.FALLING, callback=self.on_data, bouncetime=200)
+
+        # button_state = GPIO.input(BUTTON_PIN)
+        # if button_state == GPIO.LOW:
+        #     self.channel.on_broadcast_data = self.on_data
+        #     self.channel.on_burst_data = self.on_data
+
+        try:
+            self.channel.open()  # Open the ANT-Channel with given configuration
+            self.node.start()
+        except KeyboardInterrupt:
+            print("Closing ANT+ Channel...")
+            self.channel.close()
+            self.node.stop()
+        finally:
+            print("Final checking...")
+            # not sure if there is anything else we should check?! :)
 
 def read_distance():
     distance = lidar.distance
@@ -81,10 +167,19 @@ if __name__=="__main__":
     except:
         print("No bus device found")
 
-    #add logic for ant protocol implementation
+    #Logic for getting data over ant
     if not flag:
-        pass
+        print("ANT+ Ranging Demo")
+        ant_senddemo = AntSendDemo()
 
+        try:
+            ant_senddemo.OpenChannel()  # start
+        except KeyboardInterrupt:
+            print("Closing ANT+ Channel!")
+        finally:
+            print("Finally...")
+
+        print("Close demo...")
     
 
     
