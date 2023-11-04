@@ -3,6 +3,9 @@ import RPi.GPIO as GPIO
 import time
 import datetime
 import os
+import logging
+import psutil
+import serial
 
 from openant.easy.node import Node
 from openant.easy.channel import Channel
@@ -23,7 +26,7 @@ from rpi_ws281x import Adafruit_NeoPixel, Color
    Light 1 - Was the location recorded?
 """
 
-LED0 = 7
+LED0 = 7   
 LED1 = 6
 LED2 = 5
 LED3 = 4
@@ -70,12 +73,11 @@ def show_leds():
 
 # Define the base path where measurement folders will be created
 base_path = "/home/kalyan/hydrodata"  # Replace with your desired base path
+base_path_log = "/home/kalyan/logs"
 
 from RPLCD.i2c import CharLCD
 lcd = CharLCD(i2c_expander='PCF8574', address=0x27, port=1, cols=16, rows=2, dotsize=8)
 lcd.clear()
-
-
 
 # Definition of Variables for ANT
 NETWORK_KEY = [0xE8, 0xE4, 0x33, 0xA9, 0xDD, 0x56, 0xC1, 0x43]
@@ -105,8 +107,8 @@ def lcdCalib():
     lcd.write_string("    Needed    ") #Remind user to calib  rate  
 
 # Function to create a folder based on year and month
-def create_folder(year, month):
-    folder_name = os.path.join(base_path, f"{year}_{month:02d}")  # Format: base_path/YYYY-MM
+def create_folder(base_path, year, month):
+    folder_name = os.path.join(base_path, f"{year}_{month:02d}")  # Format: base_path/YYYY_MM
     if not os.path.exists(folder_name):
         os.makedirs(folder_name)
     return folder_name
@@ -116,10 +118,9 @@ def create_folder(year, month):
 def write_measurement_to_file(measurement):
     now = datetime.datetime.now()
     year, month = now.year, now.month
-    folder_name = create_folder(year, month)
+    folder_name = create_folder(base_path, year, month)
     datet = datetime.datetime.now().strftime("%Y-%m-%d")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
     filename = f"{folder_name}/measurement_{datet}.txt"
     
     with open(filename, "a") as file:
@@ -241,16 +242,83 @@ def is_device_present(address=0x62, bus_num=1):
 def button_callback(channel):
     global is_measurement_started
     is_measurement_started = True
+    strip.setPixelColor(LED4, orange) #Set fifth light to orange to indicate button press
+    strip.show()
 
-if __name__ == "__main__":
+def setup():
+    lcd.write_bytes(0x08)
     lcd.write_string("Snow Depth Probe")
     lcd.cursor_pos = (1, 1) 
-    lcd.write_string("Initializing...")
-    print("Sensor Started")
-    time.sleep(4)
+    lcd.write_string("Initializing...") 
+    logging.info("Sensor Started")
 
+def check_gps():
+    # Define the serial port where the GPS device is connected
+    serial_port = "/dev/serial0"  # Replace with the actual serial port device
+    try:
+        # Open the serial port
+        with serial.Serial(serial_port, baudrate=11250, timeout=1) as ser:
+            while True:
+                # Read a line of data from the GPS device
+                gps_data = ser.readline().decode("utf-8").strip()
+
+                # Check if the data starts with "$GPGGA" (a common NMEA sentence)
+                if gps_data.startswith("$GPGGA"):
+                    print("Valid GPS data received:", gps_data)
+                    return gps_data, True
+                else:
+                    print("Invalid GPS data:", gps_data)
+                    return False, False
+
+    except serial.SerialException:
+        logging.warn("Error in GPS")
+        return False, False
+
+def printTest():
+    pass
+
+def lcdDepth():
+    depth = calibration - distance
+    depth = depth / 1000.0
+    # Display the distance on the LCD:
+    lcd.clear()
+    lcd.setCursor(0, 0) #Set the cursor to column 1, line 1
+    lcd.print(" Depth  at ")
+    #lcd.print(count)
+    lcd.setCursor(5, 1)
+    lcd.print(depth, 3) #Prints the measured snow depth
+    lcd.print(" m") #Prints "m" on the LCD
+
+if __name__ == "__main__":
+    now = datetime.datetime.now()
+    year, month = now.year, now.month
+    logfileName = create_folder(base_path_log, year, month )
+    logging.basicConfig(
+        filename=logfileName, level=logging.DEBUG
+    )  # just for Debugging purpose, outcomment this in live version
+
+    logger = logging.getLogger("Otto")
+
+    setup()
+
+    # gps
+    check_gps()
+
+    # lcd strip
+
+    # check if sd card is good
+    disk = psutil.disk_usage('/')
+    required_free_space = 1 * 1024 * 1024 * 1024  # 1 GB in bytes
+
+    if disk.free < required_free_space:
+        logging.warn("Insuffcient Disk Space")
+        strip.setPixelColor(LED0, red)
+    else:
+        strip.setPixelColor(LED0, blue)
+        
     lcd.write_string("Searching for Devices")
     print("Searching for Devices")
+
     is_measurement_started = False
     is_i2c_present = is_device_present()
 
@@ -269,39 +337,52 @@ if __name__ == "__main__":
             calibration = newDistance  
             lcd.write_string('Distance: ' + str(calibration) + ' cm')
             print("Calibration Distance: {} cm".format(calibration))
-
             strip.setPixelColor(LED2, blue) #Set third light to blue to indicate calibration measurement recorded
             strip.show()
 
         time.sleep(2)
         lcd.clear()
         GPIO.cleanup()
+
+        #Open the file and print "Calibration: " text at the top
+        printTest()
+
         # Setup GPIO
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
         lcd.write_string("Start Measurement")
         # start measurement after calibration 
-
         try:
             GPIO.add_event_detect(button_pin, GPIO.FALLING, callback=button_callback, bouncetime=500)
             while True:
                 if is_measurement_started:
                     distance = LidarLiteV4().read_distance()
                     # check if the measurement is within the bounds
-                    if distance < 5 or distance > 1000:    
-                         lcd.clear()
-                         lcd.write_string('Invalid  Measurement')
-                         ## add logic for neo pixel to indicate this
-                    lcd.clear()
-                    lcd.write_string('Distance: ' + str(distance) + ' cm')
-                    write_measurement_to_file(distance)
-                    print("Distance: {} cm".format(distance))
-                    is_measurement_started = False
-                time.sleep(0.1)
+                    if distance > 5 and  distance < 4500:  
+                        strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
+                        strip.show()
+                        lcdDepth(distance)
+                        #lcd.write_string('Distance: ' + str(distance) + ' cm')
+                        # get gps coordintates 
+                        gps_data, gps_flag = check_gps()
 
+                        if gps_data and gps_flag:
+                            strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
+                            write_measurement_to_file(distance)
+                            #print("Distance: {} cm".format(distance))
+                        else:
+                            strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
+                            strip.setPixelColor(LED7, red)
+                        is_measurement_started = False
+                    else:
+                        strip.setPixelColor(LED5, orange)
+                        strip.setPixelColor(LED6, orange)
+                        strip.setPixelColor(LED7, orange)
+                        strip.show()
+                        lcdDepth()
+                time.sleep(0.1)
         except KeyboardInterrupt:
             pass
-
         finally:
             GPIO.cleanup()
     else:
