@@ -12,6 +12,8 @@ from openant.easy.channel import Channel
 
 from rpi_ws281x import Adafruit_NeoPixel, Color
 
+last_button_press_time = 0
+
 TIMEOUT_THRESHOLD = 10
 
 """
@@ -40,20 +42,17 @@ LED7 = 0
 
 calibration = 0
 
-# LED strip configuration:
-LED_COUNT = 8  # Number of NeoPixels
-LED_PIN = 18    # GPIO pin the NeoPixels are connected to
-LED_FREQ_HZ = 800000  # Frequency (usually 800kHz)
-LED_DMA = 10  # DMA channel to use
-LED_BRIGHTNESS = 255  # 0-255 (max brightness)
-LED_INVERT = False  # True to invert the signal
+# NeoPixel configuration
+LED_COUNT = 8      # Number of LED pixels
+LED_PIN = 18       # GPIO pin connected to the pixels (use BCM numbering)
+LED_FREQ_HZ = 800000  # LED signal frequency in hertz (usually 800kHz)
+LED_DMA = 10       # DMA channel to use for generating signal (try 10)
+LED_BRIGHTNESS = 255  # Set to 0 for darkest and 255 for brightest
+LED_INVERT = False  # True to invert the signal (when using NPN transistor level shift)
 
-strip = Adafruit_NeoPixel(
-   LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS)
-
-# Initialize the library (must be called once before other functions).
+# Create NeoPixel object
+strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ, LED_DMA, LED_INVERT, LED_BRIGHTNESS)
 strip.begin()
-
 
 red = Color(255, 0, 0)
 orange = Color(255, 128, 0)
@@ -68,6 +67,7 @@ off = Color(0, 0, 0)
 def reset_pixel_color():
     for i in range(LED_COUNT):
         strip.setPixelColor(i, Color(0, 0, 0))
+
 # Function to set the color of a specific pixel
 def set_pixel_color(pixel_index, color):
     strip.setPixelColor(pixel_index, color)
@@ -100,7 +100,9 @@ button_pin = 17  # Change this to the actual GPIO pin you are using
 GPIO.setmode(GPIO.BCM)
 
 # Set up the button pin as an input with a pull-up resistor
-GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+is_measurement_started = False
 
 def lcdCalib():
     # Update the LCD:
@@ -170,6 +172,11 @@ class AntSendDemo:
         self.ANTMessagePayload = [0, 0, 0, 0, 0, 0, 0, 0]
         self.value_accumulator = 0
         self.values_received = 0
+        self.calibration_flag = True
+        self.push_btn = False
+        self.previous_packet = 0
+        self.calibration = 0
+
     def Create_Next_DataPage(self):
         # Define Variables
         self.ANTMessageCount += 1
@@ -180,36 +187,80 @@ class AntSendDemo:
             self.ANTMessageCount = 0
 
         return self.ANTMessagePayload
+    
+    def printDataLCD(self, distance, cali):
+        depth =  distance - cali
+        # Display the distance on the LCD:
+        lcd.clear()
+        lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
+        lcd.write_string(" Depth  at ")
+        #lcd.print(count)
+        lcd.cursor_pos = (1, 5)
+        lcd.write_string(str(depth)) #Prints the measured snow depth
+        lcd.write_string(" cm") #Prints "cm" on the LCD
 
-    # TX Event
+    # RX Event
     def on_data(self, data):
-
-        if self.values_received < 5:
+        if self.push_btn:
             page = data[0]
-            if page!=80 and page!=81 and (page & 0x0F) <= 7:
-                self.values_received += 1
-                self.value_accumulator += data[6]
-
-            if self.values_received == 5:
-                average = int(self.value_accumulator / 5)
+            if page==80 or page==81:
+                pass
+            elif (page & 0x0F) <= 7 and self.calibration_flag and data[5]!= self.previous_packet:
+                average = data[6]
                 lcd.clear()
-                lcd.write_string('Distance:' + str(average) +' cm')
-                write_measurement_to_file(average)
-
-        #print(f"on_data: {data}")
+                lcd.write_string('C Distance: ' + str(average) +' cm')
+                self.calibration = average
+                self.calibration_flag = False
+                self.push_btn = False
+                self.previous_packet = data[5]
+            elif (page & 0x0F) <= 7 and data[5]!= self.previous_packet:
+                distance = data[6]
+                lcd.clear()
+                lcd.write_string('R Distance: ' + str(distance) +' cm')
+                self.push_btn = False
+                if distance > 5 and  distance < 4500:
+                    reset_pixel_color() 
+                    strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
+                    strip.show()
+                    time.sleep(0.1)
+                    #lcdDepth(distance)
+                    gps_flag, gps_data = check_gps()
+                    cali = self.calibration
+                    if gps_flag:
+                        print("GPS")
+                        reset_pixel_color()
+                        strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
+                        strip.show()
+                        self.printDataLCD(distance, cali)
+                        write_measurement_to_file(distance, gps_data, cali)
+                    else:
+                        #Set seventh light to red to indicate failure to log coordinates and distance
+                        strip.setPixelColor(LED7, red)
+                        strip.show()
+                        self.printDataLCD(distance, cali)
+                        print("No GPS")  
+                else:
+                    strip.setPixelColor(LED5, orange)
+                    strip.setPixelColor(LED6, orange)
+                    strip.setPixelColor(LED7, orange)
+                    strip.show()
+                self.previous_packet = data[5]
+                #write_measurement_to_file(average)
+            print(f"on_data: {data}")
         
     def start_measurement(self, channel):
         print("Started to measure")
+        self.push_btn = True
+        strip.setPixelColor(LED3, blue) #Set third light to blue to indicate calibration measurement recorded
+        strip.show()
+        logging.warning("Button Pushed")
         self.Create_Next_DataPage()
         print("payload ", self.ANTMessagePayload)
         self.channel.send_acknowledged_data(self.ANTMessagePayload) 
-        self.values_received = 0
-        self.value_accumulator = 0
+
     # Open Channel
     def OpenChannel(self):
-
         self.node = Node()  # initialize the ANT+ device as node
-
         # CHANNEL CONFIGURATION
         self.node.set_network_key(0x00, NETWORK_KEY)  # set network key
         self.channel = self.node.new_channel(Channel.Type.BIDIRECTIONAL_RECEIVE) 
@@ -223,8 +274,8 @@ class AntSendDemo:
         print("Starting a node")
         # Callback function for each TX event
         self.channel.on_broadcast_data = self.on_data
+        self.channel.on_burst_data = self.on_data
         GPIO.add_event_detect(17, GPIO.RISING, callback=self.start_measurement, bouncetime=500)
-        #self.channel.on_burst_data = self.on_data
 
         try:
             self.channel.open()  # Open the ANT-Channel with given configuration
@@ -244,14 +295,22 @@ def is_device_present(address=0x62, bus_num=1):
         return True
     except Exception as e:
         return False
-
 def button_callback(channel):
-    global is_measurement_started
-    is_measurement_started = True
-    strip.setPixelColor(LED4, orange) #Set fifth light to orange to indicate button press
-    strip.show()
+    global last_button_press_time, is_measurement_started
+    # Get the current time
+    current_time = time.time()
+    print("PB pressed")
+    # Check if it has been more than 0.5 seconds since the last button press
+    if (current_time - last_button_press_time) > 1:
+        is_measurement_started = True
+        last_button_press_time = current_time
+        strip.setPixelColor(LED3, blue) #Set third light to blue to indicate calibration measurement recorded
+        strip.show()
+        time.sleep(0.1)
+    logging.warning("Button Pushed")
 
-def setup():
+
+def setUP():
     #lcd.write_bytes(0x08)
     lcd.write_string("Snow Depth Probe")
     lcd.cursor_pos = (1, 1) 
@@ -270,8 +329,6 @@ def check_timeout(last_fix_time):
 
 def check_gps():
     # Define the serial port where the GPS device is connected
-    lcd.clear()
-    lcd.write_string("Checking GPS")
     serial_port = "/dev/serial0"  # Replace with the actual serial port device
     # Initialize the last_fix_time variable
     last_fix_time = time.time()
@@ -309,28 +366,22 @@ def check_gps():
                         }
                     else:
                         # Return False if no valid GPS fix
+                        logging.warning("No correct GPS String")
                         return False, None
-    
-
-    except serial.SerialException:
+    except:
         logging.warning("Error in GPS")
         return False, None
 
-def printTest():
-    pass
 
 def lcdDepth(distance):
-    depth = calibration - distance
-    depth = depth / 1000.0
+    depth =  distance - calibration
     # Display the distance on the LCD:
-    lcd.clear()
     lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
     lcd.write_string(" Depth  at ")
     #lcd.print(count)
     lcd.cursor_pos = (1, 5)
     lcd.write_string(str(depth)) #Prints the measured snow depth
     lcd.write_string(" cm") #Prints "m" on the LCD
-    time.sleep(4)
 
 if __name__ == "__main__":
     now = datetime.datetime.now()
@@ -341,23 +392,33 @@ if __name__ == "__main__":
     logfileName = f"{folder_name}/measurement_{datet}.txt"
     logging.basicConfig(
         filename=logfileName, level=logging.DEBUG,   format="%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )  # just for Debugging purpose, outcomment this in live version
-
+    ) 
     logger = logging.getLogger("Otto")
 
-    setup()
+    # lcd strip
+    for i in range(8):
+        strip.setPixelColor(i, Color(0, 0, 255))  # Blue color
+    strip.show()
+
+    time.sleep(1)
+
+    reset_pixel_color()
+    strip.show()
+    
+    setUP()
     time.sleep(4)
 
     # gps
     flag, data = check_gps()
 
     if flag:
+        strip.setPixelColor(LED2, red)
+        strip.show()
         logging.warning("GPS Found")
     else:
-        strip.setPixelColor(LED7, red)
+        strip.setPixelColor(LED2, red)
+        strip.show()
         logging.warning("No GPS Found")
-
-    # lcd strip
 
     # check if sd card is good
     disk = psutil.disk_usage('/')
@@ -366,26 +427,31 @@ if __name__ == "__main__":
     if disk.free < required_free_space:
         logging.warning("Insuffcient Disk Space")
         strip.setPixelColor(LED0, red)
+        strip.show()
     else:
         strip.setPixelColor(LED0, blue)
+        strip.show()
+
         
     lcd.write_string("Searching for Devices")
     print("Searching for Devices")
 
-    is_measurement_started = False
     is_i2c_present = is_device_present()
 
     if is_i2c_present:
         lcd.clear()
         lcd.write_string("I2C Device Found")
         print("I2C device found")
-        time.sleep(2)
+        time.sleep(0.1)
 
         #Open the file and print "Calibration: " text at the top
-        printTest()
+        #printTest()
         lcdCalib()
-
-        GPIO.wait_for_edge(button_pin, GPIO.FALLING)  # wait for the button press to calibrate
+        GPIO.add_event_detect(button_pin, GPIO.FALLING, callback=button_callback, bouncetime=3000)
+        #GPIO.wait_for_edge(button_pin, GPIO.FALLING)  # wait for the button press to calibrate
+        while not is_measurement_started:
+            pass
+        is_measurement_started = False
 
         newDistance = LidarLiteV4().read_distance()
 
@@ -393,56 +459,64 @@ if __name__ == "__main__":
             calibration = newDistance  
             lcd.clear()
             lcd.write_string('Distance: ' + str(calibration) + ' cm')
-            print("Calibration Distance: {} cm".format(calibration))
+            logging.warning("Calibration Distance: {} cm".format(calibration))
             strip.setPixelColor(LED2, blue) #Set third light to blue to indicate calibration measurement recorded
             strip.show()
+            time.sleep(2)
+        #GPIO.cleanup()
 
-        time.sleep(2)
+        # # Setup GPIO
+        # GPIO.setmode(GPIO.BCM)
+        # GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
         lcd.clear()
-        GPIO.cleanup()
-
-        # Setup GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        lcd.write_string("Start Measurement")
+        lcd.write_string("Start...")
         # start measurement after calibration 
         try:
-            GPIO.add_event_detect(button_pin, GPIO.FALLING, callback=button_callback, bouncetime=500)
+            # GPIO.add_event_detect(button_pin, GPIO.RISING, callback=button_callback, bouncetime=200)
             while True:
                 if is_measurement_started:
+                    logging.warning("I am in loop")
                     distance = LidarLiteV4().read_distance()
                     # check if the measurement is within the bounds
                     if distance > 5 and  distance < 4500:
-                        reset_pixel_color()  
+                        reset_pixel_color() 
                         strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
                         strip.show()
+                        time.sleep(0.1)
+                        lcd.clear()
                         lcdDepth(distance)
                         gps_flag, gps_data = check_gps()
 
                         if gps_flag:
                             reset_pixel_color()
                             strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
+                            strip.show()
+                            time.sleep(0.1)
                             write_measurement_to_file(distance, gps_data, calibration)
                             #print("Distance: {} cm".format(distance))
                         else:
-                            lcd.clear()
-                            lcd.write_string("No GPS..try Again")
-                            reset_pixel_color()
                             strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
                             strip.setPixelColor(LED7, red)
-                        is_measurement_started = False
+                            strip.show()
                     else:
                         strip.setPixelColor(LED5, orange)
                         strip.setPixelColor(LED6, orange)
                         strip.setPixelColor(LED7, orange)
                         strip.show()
                         lcdDepth(distance)
+                    #lcd.clear()
+                    #lcd.write_string("New Measure")
+                    logging.warning("Reset is_measurement_started to False")
+                    is_measurement_started = False
                 time.sleep(0.1)
-        except KeyboardInterrupt:
+        except:
             pass
         finally:
             GPIO.cleanup()
     else:
+        lcd.clear()
+        lcd.write_string("ANT Device..")
         ant_measure = AntSendDemo()
         try:
             ant_measure.OpenChannel()  # start
