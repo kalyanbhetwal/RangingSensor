@@ -29,14 +29,14 @@ TIMEOUT_THRESHOLD = 10
    Light 1 - Was the location recorded?
 """
 
-LED0 = 7   
-LED1 = 6
-LED2 = 5
-LED3 = 4
-LED4 = 3
-LED5 = 2
-LED6 = 1
-LED7 = 0
+LED0 = 7   #SD card available
+LED1 = 6   #LogFile can be written to
+LED2 = 5   #Distance Calibration recorded
+LED3 = 4   #GPS Fix
+LED4 = 3   #Button Press
+LED5 = 2   #Distance > 30cm successfully measured?
+LED6 = 1   #Valid GPS coordinates received?
+LED7 = 0   #Was the location recorded?
 
 # calibration global variable
 
@@ -128,13 +128,20 @@ def write_measurement_to_file(measurement, gps_data, calibration):
     datet = datetime.datetime.now().strftime("%Y-%m-%d")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filename = f"{folder_name}/measurement_{datet}.txt"
-    
+    actual_Dist =  measurement - calibration
+
     with open(filename, "a") as file:
         file.write(f"Timestamp: {current_date},")
-        file.write(f"Measurement: {measurement - calibration} cm, ")
+        file.write(f"Measurement: {actual_Dist} cm, ")
         file.write(f"latitude: {gps_data['latitude']} cm")
         file.write(f"longitude: {gps_data['longitude']} cm")
         file.write("\n")  # Add a separator or new line between entries
+        strip.setPixelColor(LED1, orange)
+        strip.show()
+        if actual_Dist > 30:
+            strip.setPixelColor(LED5, orange)
+            strip.show()
+    return True
 
 class LidarLiteV4:
     def __init__(self, bus_num=1, address=0x62):
@@ -208,42 +215,65 @@ class AntSendDemo:
             elif (page & 0x0F) <= 7 and self.calibration_flag and data[5]!= self.previous_packet:
                 average = data[6]
                 lcd.clear()
-                lcd.write_string('C Distance: ' + str(average) +' cm')
+                lcd.write_string('Calibration Distance: ' + str(average) +' cm')
                 self.calibration = average
                 self.calibration_flag = False
                 self.push_btn = False
                 self.previous_packet = data[5]
+                strip.setPixelColor(LED2, blue) #Set third light to blue to indicate calibration measurement recorded
+                strip.show()
             elif (page & 0x0F) <= 7 and data[5]!= self.previous_packet:
                 distance = data[6]
-                lcd.clear()
-                lcd.write_string('R Distance: ' + str(distance) +' cm')
+                #lcd.clear()
+                #lcd.write_string('R Distance: ' + str(distance) +' cm')
                 self.push_btn = False
                 if distance > 5 and  distance < 4500:
                     reset_pixel_color() 
                     strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
                     strip.show()
                     time.sleep(0.1)
-                    #lcdDepth(distance)
-                    gps_flag, gps_data = check_gps()
                     cali = self.calibration
+                    self.printDataLCD(distance, cali)
+                    time.sleep(2)
+                    gps_flag, gps_data = check_gps()
                     if gps_flag:
-                        print("GPS")
-                        reset_pixel_color()
-                        strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
-                        strip.show()
-                        self.printDataLCD(distance, cali)
-                        write_measurement_to_file(distance, gps_data, cali)
+                        logging.info("GPS Ready")
+                        if write_measurement_to_file(distance, gps_data, cali):
+                            reset_pixel_color()
+                            strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
+                            strip.show()
+                        else:
+                            strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
+                            strip.setPixelColor(LED7, red)
+                            logging.warning("Failed to log new GPS data.");
+
                     else:
-                        #Set seventh light to red to indicate failure to log coordinates and distance
+                        #GPS coordinate isn't valid
+                        strip.setPixelColor(LED4, red)
+                        strip.setPixelColor(LED6, red)
                         strip.setPixelColor(LED7, red)
                         strip.show()
-                        self.printDataLCD(distance, cali)
-                        print("No GPS")  
+                        #Print a debug message. Maybe we don't have enough satellites yet.
+                        lcd.clear()
+                        lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
+                        lcd.write_string("  No GPS data.  ") #Prints string "Display = " on the LCD
+                        lcd.cursor_pos = (1, 1)
+                        lcd.write_string(" Sats: ")
+                        if gps_data and gps_data.get('num_sats'):
+                            lcd.write_string(gps_data['num_sats']); #Prints the number of Sats
+                        else:
+                            lcd.write_string("0"); #Prints the number of Sats
                 else:
                     strip.setPixelColor(LED5, orange)
                     strip.setPixelColor(LED6, orange)
                     strip.setPixelColor(LED7, orange)
                     strip.show()
+                    self.printDataLCD(distance)
+                    time.sleep(12)
+                    reset_pixel_color()
+                    strip.show()
+                    lcdSats(0,0)
+
                 self.previous_packet = data[5]
                 #write_measurement_to_file(average)
             print(f"on_data: {data}")
@@ -251,7 +281,7 @@ class AntSendDemo:
     def start_measurement(self, channel):
         print("Started to measure")
         self.push_btn = True
-        strip.setPixelColor(LED3, blue) #Set third light to blue to indicate calibration measurement recorded
+        strip.setPixelColor(LED4, orange) #Set button pressed
         strip.show()
         logging.warning("Button Pushed")
         self.Create_Next_DataPage()
@@ -271,7 +301,11 @@ class AntSendDemo:
         self.channel.set_rf_freq(Channel_Frequency)  # set Channel Frequency
         self.channel.set_search_timeout(12)
         self.channel.set_id(0, 16, 0)
-        print("Starting a node")
+        logging.warning("Starting a node")
+        lcd.clear()
+        lcd.write_string("Ant Node Ready")
+        time.sleep(2)
+        lcdCalib()
         # Callback function for each TX event
         self.channel.on_broadcast_data = self.on_data
         self.channel.on_burst_data = self.on_data
@@ -300,15 +334,14 @@ def button_callback(channel):
     # Get the current time
     current_time = time.time()
     print("PB pressed")
-    # Check if it has been more than 0.5 seconds since the last button press
+    # Check if it has been more than 1 seconds since the last button press
     if (current_time - last_button_press_time) > 1:
         is_measurement_started = True
         last_button_press_time = current_time
-        strip.setPixelColor(LED3, blue) #Set third light to blue to indicate calibration measurement recorded
+        strip.setPixelColor(LED4, orange) #Set fifth light to orange to indicate button press
         strip.show()
         time.sleep(0.1)
     logging.warning("Button Pushed")
-
 
 def setUP():
     #lcd.write_bytes(0x08)
@@ -345,33 +378,72 @@ def check_gps():
 
                 if sentence.startswith("$GPGGA"):
                     # Split the sentence into fields
-                    fields = sentence.split(',')
+                    values = sentence.split(',')
 
-                    # Extract fix quality (position fix indicator)
-                    fix_quality = int(fields[6])
+                    # Check if the sentence is a GGA sentence and has enough fields
+                    if values[0] == '$GPGGA' and len(values) >= 15:
+                        # Extract relevant information
+                        dtime = values[1]
+                        latitude = values[2]
+                        latitude_dir = values[3]
+                        longitude = values[4]
+                        longitude_dir = values[5]
+                        fix_quality = values[6]
+                        num_sats = values[7]
+                        hdop = values[8]  # HDOP value
+                        altitude = values[9]
+                        altitude_units = values[10]
 
                     # Check if fix quality is valid (1 or 2 typically indicates a valid fix)
                     if fix_quality in [1, 2]:
-                        # Extract other relevant information if needed
-                        # For example: latitude, longitude, altitude
-                        latitude = fields[2]
-                        longitude = fields[4]
-                        altitude = fields[9]
-
-                        # Return True along with the GPS data
-                        return True, {
-                            "latitude": latitude,
-                            "longitude": longitude,
-                            "altitude": altitude
-                        }
+                        return True,  {
+                                'time': dtime,
+                                'latitude': latitude,
+                                'latitude_direction': latitude_dir,
+                                'longitude': longitude,
+                                'longitude_direction': longitude_dir,
+                                'fix_quality': fix_quality,
+                                'num_satellites': num_sats,
+                                 'hdop': hdop,
+                                'altitude': altitude,
+                                'altitude_units': altitude_units
+                            }
                     else:
                         # Return False if no valid GPS fix
                         logging.warning("No correct GPS String")
-                        return False, None
+                        return False,  {
+                                    'time': dtime,
+                                    'latitude': latitude,
+                                    'latitude_direction': latitude_dir,
+                                    'longitude': longitude,
+                                    'longitude_direction': longitude_dir,
+                                    'fix_quality': fix_quality,
+                                    'num_satellites': num_sats,
+                                    'hdop': hdop,
+                                    'altitude': altitude,
+                                    'altitude_units': altitude_units
+                                }
     except:
         logging.warning("Error in GPS")
         return False, None
 
+def lcdSats(hdop, satellites):
+    hdopVal = hdop / 1000.0
+    lcd.clear()
+    lcd.cursor_pos = (0, 0);
+    lcd.write_string(" Sats: ")
+    lcd.print(satellites); #Prints the # of Satellites
+    # if (millis() - updateGPSTime > periodRed)
+    # {
+    #     lcd.print(" (OLD)");
+    # }
+    lcd.cursorPos = (0, 1)
+    lcd.write_string(" HDOP: ")
+    lcd.write_string(hdopVal) # Prints the HDOP Value (not sure how accurate this is)
+    # if (millis() - updateGPSTime > periodRed)
+    # {
+    #     lcd.print(" (OLD)");
+    # }
 
 def lcdDepth(distance):
     depth =  distance - calibration
@@ -479,6 +551,7 @@ if __name__ == "__main__":
                     logging.warning("I am in loop")
                     distance = LidarLiteV4().read_distance()
                     # check if the measurement is within the bounds
+
                     if distance > 5 and  distance < 4500:
                         reset_pixel_color() 
                         strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
@@ -486,27 +559,45 @@ if __name__ == "__main__":
                         time.sleep(0.1)
                         lcd.clear()
                         lcdDepth(distance)
+                        time.sleep(2)
                         gps_flag, gps_data = check_gps()
-
                         if gps_flag:
-                            reset_pixel_color()
-                            strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
-                            strip.show()
-                            time.sleep(0.1)
-                            write_measurement_to_file(distance, gps_data, calibration)
-                            #print("Distance: {} cm".format(distance))
+                            logging.info("GPS Ready")
+                            if write_measurement_to_file(distance, gps_data, cali):
+                                reset_pixel_color()
+                                strip.setPixelColor(LED6, green) #Set seventh light to green to indicate GPS coordinates are valid
+                                strip.show()
+                            else:
+                                strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
+                                strip.setPixelColor(LED7, red)
+                                logging.warning("Failed to log new GPS data.");
+
                         else:
-                            strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
+                            #GPS coordinate isn't valid
+                            strip.setPixelColor(LED4, red)
+                            strip.setPixelColor(LED6, red)
                             strip.setPixelColor(LED7, red)
                             strip.show()
+                            #Print a debug message. Maybe we don't have enough satellites yet.
+                            lcd.clear()
+                            lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
+                            lcd.write_string("  No GPS data.  ") #Prints string "Display = " on the LCD
+                            lcd.cursor_pos = (1, 1)
+                            lcd.write_string(" Sats: ")
+                            if gps_data and gps_data.get('num_sats'):
+                                lcd.write_string(gps_data['num_sats']); #Prints the number of Sats
+                            else:
+                                lcd.write_string("0"); #Prints the number of Sats
                     else:
                         strip.setPixelColor(LED5, orange)
                         strip.setPixelColor(LED6, orange)
                         strip.setPixelColor(LED7, orange)
                         strip.show()
                         lcdDepth(distance)
-                    #lcd.clear()
-                    #lcd.write_string("New Measure")
+                        time.sleep(12)
+                        reset_pixel_color()
+                        strip.show()
+                        lcdSats(0,0)
                     logging.warning("Reset is_measurement_started to False")
                     is_measurement_started = False
                 time.sleep(0.1)
