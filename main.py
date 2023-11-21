@@ -20,8 +20,8 @@ lcd = CharLCD(i2c_expander='PCF8574', address=0x27, port=1, cols=16, rows=2, dot
 lcd.clear()
 
 # Define the base path where measurement folders will be created
-base_path = "/home/kalyan/hydrodata"  # Replace with your desired base path
-base_path_log = "/home/kalyan/logs"
+base_path = "/home/kalyan/hydrodata/measurement"  # Replace with your desired base path
+base_path_log = "/home/kalyan/hydrodata/logs"
 
 # Define your serial port and baud rate
 serial_port = '/dev/serial0'  # Replace with your actual serial port
@@ -160,17 +160,14 @@ def write_measurement_to_file(measurement, gps_data, calibration):
     #   "Count", "Distance", "latitude", "longitude", "altitude", "sat_count", "HDOP", "dateTime", "GPSTime", "status"
     with open(filename, "a") as file:
         file.write(f"{count},")
-        file.write(f"{actual_Dist},")
-        file.write(f"{gps_data.latitude},")
-        file.write(f"{gps_data.longitude},")
-        file.write(f"{gps_data.altitude},")
+        file.write(f"{actual_Dist:.2f},")
+        file.write(f"{gps_data.latitude:.2f},")
+        file.write(f"{gps_data.longitude:.2f},")
+        file.write(f"{gps_data.altitude:.2f},")
         file.write(f"{gps_data.num_sats},")
         file.write(f"{gps_data.horizontal_dil},")
         file.write(f"{gps_data.timestamp},")
-        file.write(f"{gps_data.latitude},")
-        file.write(f"{gps_data.longitude},")
-        file.write(f"{gps_data.timestamp},")
-
+        
         cur_time = datetime.datetime.now()
         gps_datetime = datetime.datetime(year=cur_time.year,month=cur_time.month, day=cur_time.day,
                 hour=gps_data.timestamp.hour, minute=gps_data.timestamp.minute, second=gps_data.timestamp.second)
@@ -327,14 +324,14 @@ class AntSendDemo:
                     self.start_frame = data[5]
                     print(data)
                     distance = ( data[7] <<8 | data[6])
-                    cali = self.calibration
+                    calibration = self.calibration
                     if distance > 5 and  distance < 4500:
                         strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
                         strip.show()
                         time.sleep(1)
                         lcd.clear()
                         #lcdDepth(distance)
-                        self.printDataLCD(distance, cali)
+                        self.printDataLCD(distance, calibration)
                         time.sleep(2)
                         gps_flag, gps_data = check_gps()
                         if gps_flag:
@@ -379,7 +376,7 @@ class AntSendDemo:
                         strip.setPixelColor(LED7, orange)
                         strip.show()
                         #lcdDepth(distance)
-                        self.printDataLCD(distance, cali)
+                        self.printDataLCD(distance, calibration)
                         time.sleep(12)
                         reset_pixel_color()
                         strip.show()
@@ -585,9 +582,9 @@ if __name__ == "__main__":
     folder_name = create_folder(base_path_log, year, month )
     datet = datetime.datetime.now().strftime("%Y-%m-%d")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logfileName = f"{folder_name}/measurement_{datet}.txt"
+    logfileName = f"{folder_name}/logs_{datet}.txt"
     logging.basicConfig(
-        filename=logfileName, level=logging.DEBUG,   format="%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        filename=logfileName, level=logging.INFO,   format="%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     ) 
     logger = logging.getLogger("Otto")
 
