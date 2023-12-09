@@ -156,18 +156,20 @@ def write_measurement_to_file(measurement, gps_data, calibration):
     datet = datetime.datetime.now().strftime("%Y-%m-%d")
     current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filename = f"{folder_name}/measurement_{datet}.txt"
-    actual_Dist =  measurement - calibration
-    #   "Count", "Distance", "latitude", "longitude", "altitude", "sat_count", "HDOP", "dateTime", "GPSTime", "status"
+    actual_Dist =   calibration - measurement
+    #   "Count", "Distance","Calibration","raw measurement", "latitude", "longitude", "altitude", "sat_count", "HDOP", "dateTime", "GPSTime", "status"
     with open(filename, "a") as file:
         file.write(f"{count},")
         file.write(f"{actual_Dist:.2f},")
-        file.write(f"{gps_data.latitude:.2f},")
-        file.write(f"{gps_data.longitude:.2f},")
-        file.write(f"{gps_data.altitude:.2f},")
+        file.write(f"{calibration:.2f},")
+        file.write(f"{measurement:.2f},")
+        file.write(f"{gps_data.latitude:.6f},")
+        file.write(f"{gps_data.longitude:.6f},")
+        file.write(f"{gps_data.altitude:.6f},")
         file.write(f"{gps_data.num_sats},")
         file.write(f"{gps_data.horizontal_dil},")
         file.write(f"{gps_data.timestamp},")
-        
+
         cur_time = datetime.datetime.now()
         gps_datetime = datetime.datetime(year=cur_time.year,month=cur_time.month, day=cur_time.day,
                 hour=gps_data.timestamp.hour, minute=gps_data.timestamp.minute, second=gps_data.timestamp.second)
