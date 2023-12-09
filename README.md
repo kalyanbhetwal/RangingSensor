@@ -1,4 +1,4 @@
-# RangingSensor
+# Snow Probe
 Snow depth measurement using Garmin Lidar Lite v4 sensor.
 
 ## Table of Contents
