@@ -53,7 +53,7 @@ dist_flag= 0
 first_dist_log = 0
 # for LCD screen update
 previousLCDsec = 0
-lcdInterval = 4
+lcdInterval = 3
 
 """
    Lighting Variables
@@ -726,7 +726,7 @@ if __name__ == "__main__":
                         lcdSats()
                     logging.warning("Reset is_measurement_started to False")
                     is_measurement_started = False
-                smart_delay(4)
+                smart_delay(2)
                 updateLights()
                 update_screen()
         except Exception as e:
