@@ -146,6 +146,61 @@ def create_folder(base_path, year, month):
         os.makedirs(folder_name)
     return folder_name
 
+def proces_measurement(distance, calibration):
+    if distance > 5 and  distance < 4500:
+        strip.setPixelColor(LED5, blue) #Set sixth light to green to indicate valid distance
+        strip.show()
+        lcd.clear()
+        lcdDepth(distance, calibration)
+        gps_flag, gps_data = check_gps()
+        if gps_flag:
+            logging.info("GPS Ready")
+            strip.setPixelColor(LED6, blue)
+            strip.show()
+            if write_measurement_to_file(distance, gps_data, calibration):
+                strip.setPixelColor(LED7, blue)
+                strip.setPixelColor(LED4, blue)
+                strip.show()
+            else:
+                strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
+                strip.setPixelColor(LED7, red)
+                strip.show()
+                logging.warning("Failed to log new GPS data.")
+        else:
+            #GPS coordinate isn't valid
+            strip.setPixelColor(LED4, red)
+            strip.setPixelColor(LED6, red)
+            strip.setPixelColor(LED7, red)
+            strip.show()
+            #Print a debug message. Maybe we don't have enough satellites yet.
+            time.sleep(2)
+            lcd.clear()
+            lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
+            lcd.write_string("  No GPS data.  ") #Prints string "Display = " on the LCD
+            lcd.cursor_pos = (1, 1)
+            lcd.write_string(" Sats: ")
+            if gps_data and gps_data.num_sats:
+                lcd.write_string(gps_data.num_sats); #Prints the number of Sats
+            else:
+                lcd.write_string("0"); #Prints the number of Sats
+        time.sleep(2)
+        strip.setPixelColor(LED4, off)
+        strip.setPixelColor(LED5, off)
+        strip.setPixelColor(LED6, off)
+        strip.setPixelColor(LED7, off)
+        strip.show()
+        lcdSats()
+    else:
+        strip.setPixelColor(LED5, orange)
+        strip.setPixelColor(LED6, orange)
+        strip.setPixelColor(LED7, orange)
+        strip.show()
+        lcdDepth(distance, calibration)
+        time.sleep(4)
+        reset_pixel_color()
+        strip.show()
+        lcdSats()
+
 # Function to write measurements to a file in a folder based on the year and month
 def write_measurement_to_file(measurement, gps_data, calibration):
     global count, start_location, first_dist_log, count
@@ -237,11 +292,6 @@ class AntSendDemo:
             self.ANTMessageCount = self.start_frame + 1
     
         self.ANTMessagePayload = [0x31, self.ANTMessageCount, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-         
-        # # ANTMessageCount reset
-        # if self.ANTMessageCount > 254:
-        #     self.ANTMessageCount = 0
-
         return self.ANTMessagePayload
     
     def printDataLCD(self, distance, cali):
@@ -257,9 +307,9 @@ class AntSendDemo:
 
     def start_measurement(self, channel):
         self.push_btn = True
-        strip.setPixelColor(LED4, orange) #Set button pressed
+        strip.setPixelColor(LED4, green) #Set button pressed
         strip.show()
-        logging.warning("Button Pushed")
+        logging.warning("Button Pressed")
         self.Create_Next_DataPage()
         print("payload ", self.ANTMessagePayload)
         self.channel.send_acknowledged_data(self.ANTMessagePayload) 
@@ -321,68 +371,12 @@ class AntSendDemo:
                     self.push_btn = False
                     #self.Create_Next_DataPage(self.start_frame+1)
                     #self.channel.send_acknowledged_data(self.ANTMessagePayload) 
-                    time.sleep(2)
                     data = self.node.start(self.start_frame)
                     self.start_frame = data[5]
                     print(data)
                     distance = ( data[7] <<8 | data[6])
                     calibration = self.calibration
-                    if distance > 5 and  distance < 4500:
-                        strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
-                        strip.show()
-                        time.sleep(1)
-                        lcd.clear()
-                        #lcdDepth(distance)
-                        self.printDataLCD(distance, calibration)
-                        time.sleep(2)
-                        gps_flag, gps_data = check_gps()
-                        if gps_flag:
-                            logging.info("GPS Ready")
-                            strip.setPixelColor(LED6, green)
-                            strip.show()
-                            if write_measurement_to_file(distance, gps_data, calibration):
-                                strip.setPixelColor(LED7, green)
-                                strip.setPixelColor(LED4, green)
-                                strip.show()
-                            else:
-                                strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
-                                strip.setPixelColor(LED7, red)
-                                logging.warning("Failed to log new GPS data.")
-                        else:
-                            #GPS coordinate isn't valid
-                            strip.setPixelColor(LED4, red)
-                            strip.setPixelColor(LED6, red)
-                            strip.setPixelColor(LED7, red)
-                            strip.show()
-                            #Print a debug message. Maybe we don't have enough satellites yet.
-                            lcd.clear()
-                            lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
-                            lcd.write_string("  No GPS data.  ") #Prints string "Display = " on the LCD
-                            lcd.cursor_pos = (1, 1)
-                            lcd.write_string(" Sats: ")
-                            if gps_data and gps_data.num_sats:
-                                lcd.write_string(gps_data.num_sats); #Prints the number of Sats
-                            else:
-                                lcd.write_string("0"); #Prints the number of Sats
-                        strip.show()
-                        time.sleep(4)
-                        strip.setPixelColor(LED4, off)
-                        strip.setPixelColor(LED5, off)
-                        strip.setPixelColor(LED6, off)
-                        strip.setPixelColor(LED7, off)
-                        strip.show()
-                        lcdSats()
-                    else:
-                        strip.setPixelColor(LED5, orange)
-                        strip.setPixelColor(LED6, orange)
-                        strip.setPixelColor(LED7, orange)
-                        strip.show()
-                        #lcdDepth(distance)
-                        self.printDataLCD(distance, calibration)
-                        time.sleep(12)
-                        reset_pixel_color()
-                        strip.show()
-                        lcdSats()
+                    proces_measurement(distance, calibration)
                 smart_delay(2)
                 updateLights()
                 update_screen()
@@ -405,15 +399,14 @@ def button_callback(channel):
     global last_button_press_time, is_measurement_started
     # Get the current time
     current_time = time.time()
-    print("PB pressed")
     # Check if it has been more than 1 seconds since the last button press
-    if (current_time - last_button_press_time) > 2:
+    if (current_time - last_button_press_time) > 1:
         is_measurement_started = True
         last_button_press_time = current_time
-        strip.setPixelColor(LED4, orange) #Set fifth light to orange to indicate button press
+        strip.setPixelColor(LED4, green) #Set fifth light to orange to indicate button press
         strip.show()
         time.sleep(0.1)
-    logging.warning("Button Pushed")
+    logging.warning("Button Pressed")
 
 def setUP():
     #lcd.write_bytes(0x08)
@@ -486,9 +479,9 @@ def lcdSats():
     if (time.time() - updateGPSTime > periodRed):
         lcd.write_string(" (OLD)")
 
-def lcdDepth(distance):
+def lcdDepth(distance, calibration):
     global count
-    depth =  distance - calibration
+    depth =   calibration - distance
     # Display the distance on the LCD:
     lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
     lcd.write_string(" Depth  at ")
@@ -517,10 +510,10 @@ def lcd_distance():
     lcd.cur_pos = (1, 0)
     lcd.write_string(" Count: ")
     lcd.write_string(str(count))  # Prints the number of depths recorded
-    lcd.write_string("  (")
+    # lcd.write_string("  (")
     # lcd.write_string(filename[3])  # Prints the logFileName
     # lcd.write_string(filename[4])  # Second digit
-    lcd.write_string(")")
+    #lcd.write_string(")")
 
 def update_screen():
     global previousLCDsec, dist_flag
@@ -665,65 +658,8 @@ if __name__ == "__main__":
         try:
             while True:
                 if is_measurement_started:
-                    logging.warning("I am in loop")
                     distance = LidarLiteV4().read_distance()
-                    # check if the measurement is within the bounds
-
-                    if distance > 5 and  distance < 4500:
-                        #reset_pixel_color() 
-                        strip.setPixelColor(LED5, green) #Set sixth light to green to indicate valid distance
-                        strip.show()
-                        time.sleep(0.1)
-                        lcd.clear()
-                        lcdDepth(distance)
-                        time.sleep(2)
-                        gps_flag, gps_data = check_gps()
-                        if gps_flag:
-                            logging.info("GPS Ready")
-                            strip.setPixelColor(LED6, green)
-                            strip.show()
-                            if write_measurement_to_file(distance, gps_data, calibration):
-                                strip.setPixelColor(LED7, green)
-                                strip.setPixelColor(LED4, green)
-                                strip.show()
-                            else:
-                                strip.setPixelColor(LED4, red) #Set seventh light to red to indicate failure to log coordinates and distance
-                                strip.setPixelColor(LED7, red)
-                                logging.warning("Failed to log new GPS data.");
-                        else:
-                            #GPS coordinate isn't valid
-                            strip.setPixelColor(LED4, red)
-                            strip.setPixelColor(LED6, red)
-                            strip.setPixelColor(LED7, red)
-                            strip.show()
-                            #Print a debug message. Maybe we don't have enough satellites yet.
-                            lcd.clear()
-                            lcd.cursor_pos = (0, 0) #Set the cursor to column 1, line 1
-                            lcd.write_string("  No GPS data.  ") #Prints string "Display = " on the LCD
-                            lcd.cursor_pos = (1, 1)
-                            lcd.write_string(" Sats: ")
-                            if gps_data and gps_data.num_sats:
-                                lcd.write_string(gps_data.num_sats); #Prints the number of Sats
-                            else:
-                                lcd.write_string("0"); #Prints the number of Sats
-                        strip.show()
-                        time.sleep(4)
-                        strip.setPixelColor(LED4, off)
-                        strip.setPixelColor(LED5, off)
-                        strip.setPixelColor(LED6, off)
-                        strip.setPixelColor(LED7, off)
-                        strip.show()
-                        lcdSats()
-                    else:
-                        strip.setPixelColor(LED5, orange)
-                        strip.setPixelColor(LED6, orange)
-                        strip.setPixelColor(LED7, orange)
-                        strip.show()
-                        lcdDepth(distance)
-                        time.sleep(12)
-                        reset_pixel_color()
-                        strip.show()
-                        lcdSats()
+                    proces_measurement(distance, calibration)
                     logging.warning("Reset is_measurement_started to False")
                     is_measurement_started = False
                 smart_delay(2)
