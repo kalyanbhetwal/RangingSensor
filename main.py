@@ -4,11 +4,9 @@ import time
 import datetime
 import os
 import logging
-import psutil
 import serial
 import pynmea2
 from geopy.distance import geodesic
-
 
 from openant.easy.node import Node
 from openant.easy.channel import Channel
@@ -30,7 +28,9 @@ baud_rate = 115200  # Replace with your actual baud rate
 # Create a serial object
 ser = serial.Serial(serial_port, baud_rate, timeout=5)
 current_fix = ''
+current_fix_rmc = ''
 next_fix = ''
+next_fix_rmc = ''
 start_location = ''
 
 last_button_press_time = 0
@@ -152,12 +152,12 @@ def proces_measurement(distance, calibration):
         strip.show()
         lcd.clear()
         lcdDepth(distance, calibration)
-        gps_flag, gps_data = check_gps()
+        gps_flag, gps_data, gps_data_dt = check_gps()
         if gps_flag:
             logging.info("GPS Ready")
             strip.setPixelColor(LED6, blue)
             strip.show()
-            if write_measurement_to_file(distance, gps_data, calibration):
+            if write_measurement_to_file(distance, calibration, gps_data, gps_data_dt):
                 strip.setPixelColor(LED7, blue)
                 strip.setPixelColor(LED4, blue)
                 strip.show()
@@ -202,15 +202,13 @@ def proces_measurement(distance, calibration):
         lcdSats()
 
 # Function to write measurements to a file in a folder based on the year and month
-def write_measurement_to_file(measurement, gps_data, calibration):
+def write_measurement_to_file(measurement, calibration, gps_data, gps_data_dt):
     global count, start_location, first_dist_log, count
     logging.warning("Started writing to the file")
     now = datetime.datetime.now()
     year, month = now.year, now.month
     folder_name = create_folder(base_path, year, month)
-    datet = datetime.datetime.now().strftime("%Y-%m-%d")
-    current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    filename = f"{folder_name}/measurement_{datet}.txt"
+    filename = f"{folder_name}/measurement_{gps_data_dt.datestamp}.txt"
     actual_Dist =   calibration - measurement
     #   "Count", "Distance","Calibration","raw measurement", "latitude", "longitude", "altitude", "sat_count", "HDOP", "dateTime", "GPSTime", "status"
     with open(filename, "a") as file:
@@ -223,19 +221,21 @@ def write_measurement_to_file(measurement, gps_data, calibration):
         file.write(f"{gps_data.altitude:.6f},")
         file.write(f"{gps_data.num_sats},")
         file.write(f"{gps_data.horizontal_dil},")
-        file.write(f"{gps_data.timestamp},")
 
-        cur_time = datetime.datetime.now()
-        gps_datetime = datetime.datetime(year=cur_time.year,month=cur_time.month, day=cur_time.day,
-                hour=gps_data.timestamp.hour, minute=gps_data.timestamp.minute, second=gps_data.timestamp.second)
+        time_stamp = gps_data_dt.timestamp
+        date_stamp = gps_data_dt.datestamp
 
-        dt_string =  gps_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
-        file.write(f"{dt_string}")
+        datetime_str = f"{date_stamp} {time_stamp}"
+        datetime_obj = datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S%z")
+
+        # Convert to a string in the correct format
+        human_readable_datetime = datetime_obj.strftime("%Y-%m-%d %H:%M:%S%z")
+        file.write(f"{human_readable_datetime}")
         file.write("\n")  # Add a separator or new line between entries
         if first_dist_log == 0:
             start_location = gps_data
             first_dist_log = 1
-        strip.setPixelColor(LED1, orange)
+        strip.setPixelColor(LED1, blue)
         strip.show()
         if actual_Dist > 30:
             strip.setPixelColor(LED5, orange)
@@ -426,9 +426,11 @@ def check_timeout(last_fix_time):
 
 
 def check_gps():
-    global updateGPSTime, startGPSTime, current_fix, next_fix
+    global updateGPSTime, startGPSTime, current_fix, current_fix_rmc, next_fix, next_fix_rmc
     # Initialize the last_fix_time variable
     last_fix_time = time.time()
+    flag_current_fix = False
+    flag_current_fix_rmc = False
     try:
         while True:
             # Read a line of data from the GPS device
@@ -436,8 +438,8 @@ def check_gps():
             msg = pynmea2.parse(sentence)
 
             if check_timeout(last_fix_time):
-                return False, None
-
+                return False, None, None
+        
             if isinstance(msg, pynmea2.GGA):
                 next_fix = msg
                 # Check if fix quality is valid (1 or 2 typically indicates a valid fix)
@@ -447,11 +449,13 @@ def check_gps():
                     updateLights()
                     if startGPSTime == 0:
                         startGPSTime = current_fix.timestamp
-                    return True, current_fix
-                else: 
-                    # Return False if no valid GPS fix
-                    logging.warning("Incorrect GPS String")
-                    return False, next_fix
+                    flag_current_fix = True
+            if isinstance(msg, pynmea2.RMC):
+                next_fix_rmc = msg
+                flag_current_fix_rmc = True
+
+            if flag_current_fix and flag_current_fix_rmc:
+                return True, current_fix, next_fix_rmc
     except Exception as e:
         logging.warning(f"Error in GPS: {e}")
         return False, None
@@ -534,7 +538,7 @@ def updateLights():
         if (time.time() > updateLightTime + lightInterval):
         # Update GPS light
             if (updateGPSTime == 0):
-                strip.setPixelColor(LED3, red) #Set fourth li ght to red to indicate never received GPS signal
+                strip.setPixelColor(LED3, red) #Set fourth light to red to indicate never received GPS signal
 
             elif (time.time() - updateGPSTime <= periodBlue):
                 if next_fix:
@@ -597,10 +601,10 @@ if __name__ == "__main__":
     time.sleep(2)
 
     # gps
-    flag, data = check_gps()
+    flag, data, data_with_dt = check_gps()
 
     if flag:
-        strip.setPixelColor(LED2, red)
+        strip.setPixelColor(LED2, blue)
         strip.show()
         logging.warning("GPS Found")
     else:
@@ -609,10 +613,17 @@ if __name__ == "__main__":
         logging.warning("No GPS Found")
 
     # check if sd card is good
-    disk = psutil.disk_usage('/')
-    required_free_space = 1 * 1024 * 1024 * 1024  # 1 GB in bytes
+    try:
+        statvfs = os.statvfs('/')
+        # Calculate available space in bytes
+        available_space = statvfs.f_bsize * statvfs.f_bavail
+        # Convert to megabytes (1 MB = 1024*1024*1024 bytes)
+        available_space_mb = available_space / (1024.0 ** 3)
+    except Exception as e:
+        logging.warning(f"Exception: {e}")
+        available_space_mb = 0
 
-    if disk.free < required_free_space:
+    if available_space_mb < 1:
         logging.warning("Insuffcient Disk Space")
         strip.setPixelColor(LED0, red)
         strip.show()
@@ -636,7 +647,7 @@ if __name__ == "__main__":
         #printTest()
         lcdCalib()
         strip.setPixelColor(LED2, orange)
-        GPIO.add_event_detect(button_pin, GPIO.FALLING, callback=button_callback, bouncetime=3000) 
+        GPIO.add_event_detect(button_pin, GPIO.FALLING, callback=button_callback, bouncetime=300) 
         while not is_measurement_started:
             time.sleep(1)
             updateLights()
@@ -654,13 +665,15 @@ if __name__ == "__main__":
             time.sleep(2)
         lcd.clear()
         lcd.write_string("Start...")
-        # start measurement after calibration 
+        strip.setPixelColor(LED4, off) #Off the fifth light
+        strip.show()
+     
         try:
             while True:
                 if is_measurement_started:
                     distance = LidarLiteV4().read_distance()
                     proces_measurement(distance, calibration)
-                    logging.warning("Reset is_measurement_started to False")
+                    logging.warning("Setting is_measurement_started to False")
                     is_measurement_started = False
                 smart_delay(2)
                 updateLights()
