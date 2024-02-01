@@ -1,8 +1,7 @@
 # Snow Probe
 Snow depth measurement using Garmin Lidar Lite v4 sensor.
 ![20231208_133155_001](https://github.com/kalyanbhetwal/SnowProbe/assets/13769514/d1af6ec5-4c93-4684-9ee8-6b8a02c6d8f4)
-
-
+[It's me during one of the many field tests]
 
 ## Table of Contents
 
