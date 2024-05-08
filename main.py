@@ -25,6 +25,9 @@ base_path_log = "/home/kalyan/hydrodata/logs"
 serial_port = '/dev/serial0'  # Replace with your actual serial port
 baud_rate = 115200  # Replace with your actual baud rate
 
+#Retry ANT connection
+RETRY_COUNT = 5
+
 # Create a serial object
 ser = serial.Serial(serial_port, baud_rate, timeout=5)
 current_fix = ''
@@ -190,14 +193,37 @@ def proces_measurement(distance, calibration):
         strip.setPixelColor(LED7, off)
         strip.show()
         lcdSats()
+    elif distance==0:
+        strip.setPixelColor(LED4, red)
+        strip.setPixelColor(LED5, red)
+        strip.setPixelColor(LED6, red)
+        strip.setPixelColor(LED7, red)
+        strip.show()
+        lcd.clear()
+        lcd.write_string("Check Battery")
+        time.sleep(4)
+        strip.setPixelColor(LED4, off)
+        strip.setPixelColor(LED5, off)
+        strip.setPixelColor(LED6, off)
+        strip.setPixelColor(LED7, off)
+        strip.show()
+        #reset_pixel_color()
+        strip.show()
+        lcdSats()
     else:
-        strip.setPixelColor(LED5, orange)
-        strip.setPixelColor(LED6, orange)
-        strip.setPixelColor(LED7, orange)
+        strip.setPixelColor(LED4, red)
+        strip.setPixelColor(LED5, red)
+        strip.setPixelColor(LED6, red)
+        strip.setPixelColor(LED7, red)
         strip.show()
         lcdDepth(distance, calibration)
         time.sleep(4)
-        reset_pixel_color()
+        strip.setPixelColor(LED4, off)
+        strip.setPixelColor(LED5, off)
+        strip.setPixelColor(LED6, off)
+        strip.setPixelColor(LED7, off)
+        strip.show()
+        #reset_pixel_color()
         strip.show()
         lcdSats()
 
@@ -226,7 +252,19 @@ def write_measurement_to_file(measurement, calibration, gps_data, gps_data_dt):
         date_stamp = gps_data_dt.datestamp
 
         datetime_str = f"{date_stamp} {time_stamp}"
-        datetime_obj = datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S%z")
+
+        try:
+            datetime_obj = datetime.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S%z")
+        except:
+            lcd.clear()
+            lcd.write_string("GPS Data None")
+            lcd.write_string("Retake")
+            strip.setPixelColor(LED4, red)
+            strip.setPixelColor(LED5, red)
+            strip.setPixelColor(LED6, red)
+            strip.setPixelColor(LED7, red)
+            strip.show()
+            return
 
         # Convert to a string in the correct format
         human_readable_datetime = datetime_obj.strftime("%Y-%m-%d %H:%M:%S%z")
@@ -237,9 +275,10 @@ def write_measurement_to_file(measurement, calibration, gps_data, gps_data_dt):
             first_dist_log = 1
         strip.setPixelColor(LED1, blue)
         strip.show()
-        if actual_Dist > 30:
-            strip.setPixelColor(LED5, orange)
-            strip.show()
+
+        # if actual_Dist > 30:
+        #     strip.setPixelColor(LED5, orange)
+        #     strip.show()
         count = count + 1
     return True
 
@@ -311,11 +350,17 @@ class AntSendDemo:
         strip.show()
         logging.warning("Button Pressed")
         self.Create_Next_DataPage()
-        print("payload ", self.ANTMessagePayload)
-        self.channel.send_acknowledged_data(self.ANTMessagePayload) 
+        logging.warning(self.ANTMessagePayload)
+        logging.warning("payload ", self.ANTMessagePayload)
+        self.channel.send_broadcast_data(self.ANTMessagePayload) 
+        logging.warn("ACK received")
+    
+    def calibration_m(self):
+        pass
 
     # Open Channel
     def OpenChannel(self):
+        global RETRY_COUNT
         self.node = Node()  # initialize the ANT+ device as node
         # CHANNEL CONFIGURATION
         self.node.set_network_key(0x00, NETWORK_KEY)  # set network key
@@ -325,7 +370,7 @@ class AntSendDemo:
         # )  # set channel id as <Device Number, Device Type, Transmission Type>
         self.channel.set_period(Channel_Period)  # set Channel Period
         self.channel.set_rf_freq(Channel_Frequency)  # set Channel Frequency
-        self.channel.set_search_timeout(30)
+        self.channel.set_search_timeout(200)
         self.channel.set_id(0, 16, 0)
 
         GPIO.add_event_detect(button_pin, GPIO.FALLING, callback=self.start_measurement, bouncetime=3000)
@@ -339,20 +384,31 @@ class AntSendDemo:
         self.start_frame = 0
         data = self.node.start(self.start_frame, True)
         self.start_frame = data[5]
-
-        print(f"Staring frame id {self.start_frame}")
-
+        logging.warning(f"Staring frame id {self.start_frame}")
         while not self.push_btn:
             time.sleep(1)
             smart_delay(2)
         
-        self.push_btn = False
-        #self.channel.send_acknowledged_data(self.ANTMessagePayload) 
-        time.sleep(2)
-        data = self.node.start(self.start_frame)
+        # self.push_btn = False
+        # #self.channel.send_acknowledged_data(self.ANTMessagePayload) 
+        # time.sleep(2)
+        # if data[0]==0:
+        #     lcd.clear()
+        #     lcd.write_string("Recalibrate")
+
+        while True:
+            if self.push_btn:
+                self.push_btn = False
+                data = self.node.start(self.start_frame)
+                if data[0]!=0:
+                    break
+                lcd.clear()
+                lcd.write_string("Recalibrate")
+                logging.warn("Recalibrate")
+
         self.start_frame = data[5]
         newDistance = ( data[7] <<8 | data[6])
-        print(f"frame after calibration: {self.start_frame}")
+        logging.warning(f"frame after calibration: {self.start_frame}")
 
         if newDistance > 5 and newDistance < 4500:  
             self.calibration = newDistance  
@@ -363,8 +419,10 @@ class AntSendDemo:
             strip.show()
             time.sleep(2)
         lcd.clear()
-        lcd.write_string("Start...")
-        time.sleep(2)
+        # lcd.write_string("Start...")
+        # time.sleep(2)
+        strip.setPixelColor(LED4, off) #Off the fifth light
+        strip.show()
         try:
             while True:
                 if self.push_btn:
@@ -372,12 +430,24 @@ class AntSendDemo:
                     #self.Create_Next_DataPage(self.start_frame+1)
                     #self.channel.send_acknowledged_data(self.ANTMessagePayload) 
                     data = self.node.start(self.start_frame)
-                    self.start_frame = data[5]
-                    print(data)
+                    if data[0] !=0:
+                        self.start_frame = data[5]
+                    elif data[0] == 0:  #failed measurement and try one more time
+                        while RETRY_COUNT > 0:
+                            logging.warn("Retry")
+                            self.start_measurement(self.channel) 
+                            data = self.node.start(self.start_frame)
+                            if data[0]!= 0:
+                                self.start_frame = data[5]
+                                RETRY_COUNT = 5
+                                break
+                            RETRY_COUNT = RETRY_COUNT - 1
+                        self.start_frame = 0
+                    logging.warning(data)
                     distance = ( data[7] <<8 | data[6])
                     calibration = self.calibration
                     proces_measurement(distance, calibration)
-                smart_delay(2)
+                smart_delay(1)
                 updateLights()
                 update_screen()
         except Exception as e:
@@ -410,7 +480,7 @@ def button_callback(channel):
 
 def setUP():
     #lcd.write_bytes(0x08)
-    lcd.write_string("Snow Depth Probe")
+    lcd.write_string("OTTO Depth Probe")
     lcd.cursor_pos = (1, 1) 
     lcd.write_string("Initializing...") 
     logging.info("Sensor Started")
@@ -475,13 +545,13 @@ def lcdSats():
     lcd.cursor_pos = (0, 0)
     lcd.write_string(" Sats: ")
     lcd.write_string(str(satellites)); #Prints the # of Satellites
-    if (time.time() - updateGPSTime > periodRed):
-        lcd.write_string(" (OLD)")
+    # if (time.time() - updateGPSTime > periodRed):
+    #     lcd.write_string(" (OLD)")
     lcd.cursor_pos = (1, 0)
     lcd.write_string(" HDOP: ")
     lcd.write_string(str(hdopVal)) # Prints the HDOP Value (not sure how accurate this is)
-    if (time.time() - updateGPSTime > periodRed):
-        lcd.write_string(" (OLD)")
+    # if (time.time() - updateGPSTime > periodRed):
+    #     lcd.write_string(" (OLD)")
 
 def lcdDepth(distance, calibration):
     global count
@@ -664,7 +734,7 @@ if __name__ == "__main__":
             strip.show()
             time.sleep(2)
         lcd.clear()
-        lcd.write_string("Start...")
+        #lcd.write_string("Start...")
         strip.setPixelColor(LED4, off) #Off the fifth light
         strip.show()
      
